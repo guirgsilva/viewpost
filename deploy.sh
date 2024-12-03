@@ -96,12 +96,27 @@ wait_for_stack "ComputeStack"
 LOAD_BALANCER_NAME=$(aws cloudformation describe-stacks \
     --stack-name ComputeStack \
     --query 'Stacks[0].Outputs[?OutputKey==`ApplicationLoadBalancerName`].OutputValue' \
-    --output text | cut -d'/' -f3)
+    --output text)
 
 AUTO_SCALING_GROUP=$(aws cloudformation describe-stacks \
     --stack-name ComputeStack \
-    --query 'Stacks[0].Outputs[?OutputKey==`AutoScalingGroupId`].OutputValue' \
+    --query 'Stacks[0].Outputs[?OutputKey==`AutoScalingGroupName`].OutputValue' \
     --output text)
+
+# Debug output
+echo "Debug information:"
+echo "LoadBalancer query result: $(aws cloudformation describe-stacks --stack-name ComputeStack --query 'Stacks[0].Outputs[?OutputKey==`ApplicationLoadBalancerName`]' --output json)"
+echo "ASG query result: $(aws cloudformation describe-stacks --stack-name ComputeStack --query 'Stacks[0].Outputs[?OutputKey==`AutoScalingGroupName`]' --output json)"
+
+# Validate outputs
+if [ -z "$LOAD_BALANCER_NAME" ] || [ -z "$AUTO_SCALING_GROUP" ]; then
+    echo "Error: Failed to get required outputs from ComputeStack"
+    echo "Load Balancer Name: $LOAD_BALANCER_NAME"
+    echo "Auto Scaling Group: $AUTO_SCALING_GROUP"
+    echo "All ComputeStack outputs:"
+    aws cloudformation describe-stacks --stack-name ComputeStack --query 'Stacks[0].Outputs' --output table
+    exit 1
+fi
 
 echo "Compute outputs:"
 echo "Load Balancer Name: $LOAD_BALANCER_NAME"

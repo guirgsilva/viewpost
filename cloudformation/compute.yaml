@@ -48,6 +48,7 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
       Policies:
         - PolicyName: ViewPostAccess
           PolicyDocument:
@@ -58,6 +59,13 @@ Resources:
                   - s3:GetObject
                   - s3:ListBucket
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 's3:GetObject'
+                  - 's3:ListBucket'
+                Resource: 
+                  - !Sub 'arn:aws:s3:::aws-codedeploy-${AWS::Region}/*'
+                  - !Sub 'arn:aws:s3:::aws-codedeploy-${AWS::Region}'
 
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
@@ -73,8 +81,18 @@ Resources:
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
+            # Update system and install dependencies
             yum update -y
-            yum install -y python3-pip git python3-devel gcc python3-psutil
+            yum install -y python3-pip git python3-devel gcc python3-psutil ruby wget
+
+            # Install CodeDeploy Agent
+            wget https://aws-codedeploy-${AWS::Region}.s3.amazonaws.com/latest/install
+            chmod +x ./install
+            ./install auto
+            systemctl enable codedeploy-agent
+            systemctl start codedeploy-agent
+
+            # Set up application directory and environment
             mkdir -p /opt/viewpost
             cd /opt/viewpost
             git clone https://github.com/guirgsilva/viewpost.git .
@@ -82,11 +100,11 @@ Resources:
             source venv/bin/activate
             pip install -r requirements.txt
             
-            # Create log directory
+            # Create log directory with proper permissions
             mkdir -p /var/log/viewpost
             chown -R ec2-user:ec2-user /var/log/viewpost
             
-            # Configure systemd service
+            # Configure systemd service for the application
             cat > /etc/systemd/system/viewpost.service << 'EOF'
             [Unit]
             Description=ViewPost Web Application
@@ -94,7 +112,7 @@ Resources:
 
             [Service]
             User=ec2-user
-            WorkingDirectory=/opt/viewpost/app
+            WorkingDirectory=/opt/viewpost
             Environment="PATH=/opt/viewpost/venv/bin"
             ExecStart=/opt/viewpost/venv/bin/python -m flask run --host=0.0.0.0 --port=80
             Restart=always
@@ -103,6 +121,7 @@ Resources:
             WantedBy=multi-user.target
             EOF
 
+            # Enable and start the application service
             systemctl enable viewpost
             systemctl start viewpost
 
@@ -171,13 +190,18 @@ Resources:
 Outputs:
   ApplicationLoadBalancerName:
     Description: 'Name of the Application Load Balancer'
-    Value: !Ref ApplicationLoadBalancer    # Changed from GetAtt to Ref
+    Value: !GetAtt ApplicationLoadBalancer.LoadBalancerName
     Export:
       Name: !Sub "${AWS::StackName}-ApplicationLoadBalancerName"
 
-  AutoScalingGroupId:
-    Description: 'ID of the Auto Scaling Group'
+  AutoScalingGroupName:
+    Description: 'Name of the Auto Scaling Group'
     Value: !Ref AutoScalingGroup
     Export:
-      Name: !Sub "${AWS::StackName}-AutoScalingGroupId"
-      
+      Name: !Sub "${AWS::StackName}-AutoScalingGroupName"
+
+  ALBTargetGroupName:
+    Description: 'Name of the ALB Target Group'
+    Value: !GetAtt ALBTargetGroup.TargetGroupName
+    Export:
+      Name: !Sub "${AWS::StackName}-TargetGroupName"

@@ -1,5 +1,6 @@
+# cloudformation/cicd.yaml
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'CI/CD Pipeline with GitHub integration and Multiple Phases'
+Description: 'CI/CD Pipeline with GitHub integration, Multiple Phases, and CodeDeploy'
 
 Parameters:
   GitHubOwner:
@@ -14,7 +15,7 @@ Parameters:
   
   GitHubBranch:
     Type: String
-    Default: "master"
+    Default: "main"
     Description: "GitHub branch name"
   
   GitHubTokenSecretName:
@@ -79,26 +80,6 @@ Resources:
         Type: CODEPIPELINE
         BuildSpec: buildspec-test.yml
 
-  # Build Phase Project
-  BuildProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Sub ${AWS::StackName}-Build
-      Description: "Build Python application"
-      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
-      Artifacts:
-        Type: CODEPIPELINE
-      Environment:
-        Type: ARM_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/amazonlinux2-aarch64-standard:2.0
-        EnvironmentVariables:
-          - Name: PYTHONPATH
-            Value: /usr/local/lib/python3.8/site-packages
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: buildspec-build.yml
-
   # Security Phase Project
   SecurityProject:
     Type: AWS::CodeBuild::Project
@@ -112,13 +93,51 @@ Resources:
         Type: ARM_CONTAINER
         ComputeType: BUILD_GENERAL1_SMALL
         Image: aws/codebuild/amazonlinux2-aarch64-standard:2.0
-        EnvironmentVariables:
-          - Name: PYTHONPATH
-            Value: /usr/local/lib/python3.8/site-packages
       Source:
         Type: CODEPIPELINE
         BuildSpec: buildspec-security.yml
 
+  # Build Phase Project
+  BuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${AWS::StackName}-Build
+      Description: "Build Python application"
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: ARM_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-aarch64-standard:2.0
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec-build.yml
+
+  # CodeDeploy Application
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub ${AWS::StackName}-Application
+      ComputePlatform: Server
+
+  # CodeDeploy Deployment Group
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+      DeploymentGroupName: !Sub ${AWS::StackName}-DeploymentGroup
+      DeploymentStyle:
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+        DeploymentType: IN_PLACE
+      AutoScalingGroups:
+        - Fn::ImportValue: "ComputeStack-AutoScalingGroupName"
+      LoadBalancerInfo:
+        TargetGroupInfoList:
+          - Name: !ImportValue "ComputeStack-TargetGroupName"
+
+  # Pipeline Definition
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
@@ -208,6 +227,22 @@ Resources:
                 - Name: BuildOutput
               RunOrder: 1
 
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: '1'
+                Provider: CodeDeploy
+              Configuration:
+                ApplicationName: !Ref CodeDeployApplication
+                DeploymentGroupName: !Ref CodeDeployDeploymentGroup
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+
+  # IAM Roles
   PipelineRole:
     Type: AWS::IAM::Role
     Properties:
@@ -240,6 +275,10 @@ Resources:
                   - !GetAtt TestProject.Arn
                   - !GetAtt SecurityProject.Arn
                   - !GetAtt BuildProject.Arn
+              - Effect: Allow
+                Action:
+                  - 'codedeploy:*'
+                Resource: '*'
               - Effect: Allow
                 Action:
                   - 'secretsmanager:GetSecretValue'
@@ -275,24 +314,41 @@ Resources:
                 Resource: 
                   - !GetAtt PipelineArtifactsBucket.Arn
                   - !Sub '${PipelineArtifactsBucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - 'codebuild:CreateReportGroup'
+                  - 'codebuild:CreateReport'
+                  - 'codebuild:UpdateReport'
+                  - 'codebuild:BatchPutTestCases'
+                Resource: 
+                  - !Sub 'arn:aws:codebuild:${AWS::Region}:${AWS::AccountId}:report-group/*'
+
+  CodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
 
 Outputs:
   PipelineURL:
     Description: CodePipeline URL
     Value: !Sub https://console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${CodePipeline}
   
-  InstallProjectURL:
-    Description: Install Project URL
-    Value: !Sub https://console.aws.amazon.com/codesuite/codebuild/${AWS::AccountId}/projects/${InstallProject}
-  
-  TestProjectURL:
-    Description: Test Project URL
-    Value: !Sub https://console.aws.amazon.com/codesuite/codebuild/${AWS::AccountId}/projects/${TestProject}
-  
-  SecurityProjectURL:
-    Description: Security Project URL
-    Value: !Sub https://console.aws.amazon.com/codesuite/codebuild/${AWS::AccountId}/projects/${SecurityProject}
-  
-  BuildProjectURL:
-    Description: Build Project URL
-    Value: !Sub https://console.aws.amazon.com/codesuite/codebuild/${AWS::AccountId}/projects/${BuildProject}
+  ApplicationName:
+    Description: CodeDeploy Application Name
+    Value: !Ref CodeDeployApplication
+    Export:
+      Name: !Sub "${AWS::StackName}-ApplicationName"
+
+  DeploymentGroupName:
+    Description: CodeDeploy Deployment Group Name
+    Value: !Ref CodeDeployDeploymentGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-DeploymentGroupName"

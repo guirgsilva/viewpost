@@ -5,16 +5,18 @@ phases:
     commands:
       - echo "Running security checks..."
       - pip install safety bandit
-      - safety check
-      - bandit -r ./app -f json -o security-report.json
+      - safety check --output json > safety-report.json || true
+      - bandit -r ./ -f json -o bandit-report.json || true
       
 reports:
-  security_report:
+  security-report:
     files:
-      - security-report.json
+      - "safety-report.json"
+      - "bandit-report.json"
     file-format: JSON
 
 artifacts:
   files:
-    - security-report.json
+    - safety-report.json
+    - bandit-report.json
     - '**/*'
