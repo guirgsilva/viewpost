@@ -95,11 +95,17 @@ Resources:
             systemctl enable codedeploy-agent
             systemctl start codedeploy-agent
 
-            # Remove existing directory if it exists
-            rm -rf /opt/viewpost
+            # Clean up existing files
+            rm -rf /opt/viewpost/*
+            rm -rf /opt/viewpost/.git
+            rm -rf /opt/viewpost/scripts
+            rm -f /etc/systemd/system/viewpost.service
 
             # Set up application directory and environment
-            mkdir -p /opt/viewpost
+            mkdir -p /opt/viewpost/scripts
+            chmod -R 755 /opt/viewpost
+            chown -R ec2-user:ec2-user /opt/viewpost
+
             cd /opt/viewpost
             git clone https://github.com/guirgsilva/viewpost.git .
             python3 -m venv venv
@@ -126,6 +132,10 @@ Resources:
             [Install]
             WantedBy=multi-user.target
             EOF
+
+            # Set appropriate permissions for service file
+            chmod 644 /etc/systemd/system/viewpost.service
+            systemctl daemon-reload
 
             # Enable and start the application service
             systemctl enable viewpost
