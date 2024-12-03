@@ -5,7 +5,7 @@ echo "Validating service..."
 # Variáveis de configuração
 MAX_ATTEMPTS=30
 SLEEP_TIME=10
-ENDPOINT="http://localhost/health"
+ENDPOINT="http://localhost:5000/health"
 
 # Função para verificar o serviço
 check_service() {
