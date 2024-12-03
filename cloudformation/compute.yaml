@@ -123,12 +123,16 @@ Resources:
             After=network.target
 
             [Service]
+            Type=simple
             User=ec2-user
             WorkingDirectory=/opt/viewpost
             Environment="PATH=/opt/viewpost/venv/bin"
-            ExecStart=/opt/viewpost/venv/bin/python -m flask run --host=0.0.0.0 --port=80
+            Environment="FLASK_APP=app"
+            ExecStart=/opt/viewpost/venv/bin/flask run --host=0.0.0.0 --port=80
             Restart=always
-
+            RestartSec=5
+            TimeoutStartSec=0
+        
             [Install]
             WantedBy=multi-user.target
             EOF
@@ -140,6 +144,7 @@ Resources:
             # Enable and start the application service
             systemctl enable viewpost
             systemctl start viewpost
+            journalctl -u viewpost -f --no-pager &
 
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
