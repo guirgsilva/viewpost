@@ -56,9 +56,12 @@ Resources:
             Statement:
               - Effect: Allow
                 Action:
-                  - s3:GetObject
-                  - s3:ListBucket
-                Resource: '*'
+                  - 's3:GetObject'
+                  - 's3:GetObjectVersion'
+                  - 's3:ListBucket'
+                Resource: 
+                  - 'arn:aws:s3:::*/*'
+                  - 'arn:aws:s3:::*'
               - Effect: Allow
                 Action:
                   - 's3:GetObject'
@@ -91,6 +94,9 @@ Resources:
             ./install auto
             systemctl enable codedeploy-agent
             systemctl start codedeploy-agent
+
+            # Remove existing directory if it exists
+            rm -rf /opt/viewpost
 
             # Set up application directory and environment
             mkdir -p /opt/viewpost
