@@ -1,0 +1,19 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "Installing test dependencies..."
+      - pip install pytest pytest-cov
+      
+  build:
+    commands:
+      - echo "Running tests..."
+      - cd app
+      - python -m pytest
+      - cd ..
+
+artifacts:
+  files:
+    - '**/*'
+  base-directory: '.'

@@ -1,0 +1,17 @@
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - echo "Starting build phase"
+      - echo "Preparing application files..."
+      - mkdir -p build/app
+      - cp -r app/* build/app/
+      - cp requirements.txt build/
+      - cp appspec.yml build/
+      - cp -r scripts build/
+
+artifacts:
+  files:
+    - '**/*'
+  base-directory: 'build'

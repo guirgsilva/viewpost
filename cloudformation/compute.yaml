@@ -1,0 +1,47 @@
+LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: ConfidantLaunchTemplate
+      LaunchTemplateData:
+        InstanceType: t2.micro
+        ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}"
+        SecurityGroupIds:
+          - !Ref ConfidantSecurityGroup
+        IamInstanceProfile:
+          Name: !Ref ConfidantInstanceProfile
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            yum update -y
+            yum install -y python3-pip git python3-devel gcc python3-psutil
+            mkdir -p /opt/confidant
+            cd /opt/confidant
+            git clone https://github.com/guirgsilva/viewpost.git .
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install -r requirements.txt
+            
+            # Criar diretório de logs
+            mkdir -p /var/log/confidant
+            chown -R ec2-user:ec2-user /var/log/confidant
+            
+            # Configurar o serviço
+            cat > /etc/systemd/system/confidant.service << 'EOF'
+            [Unit]
+            Description=Confidant Web Application
+            After=network.target
+
+            [Service]
+            User=ec2-user
+            WorkingDirectory=/opt/confidant
+            Environment="PATH=/opt/confidant/venv/bin"
+            ExecStart=/opt/confidant/venv/bin/python -m flask run --host=0.0.0.0 --port=80
+            Restart=always
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            # Habilitar e iniciar o serviço
+            systemctl enable confidant
+            systemctl start confidant
