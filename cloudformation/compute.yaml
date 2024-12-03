@@ -1,47 +1,183 @@
-LaunchTemplate:
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ViewPost Application Deployment with EC2, Auto Scaling, and Application Load Balancer'
+
+Parameters:
+  VPCId:
+    Type: String
+    Description: 'The ID of the VPC'
+  
+  PublicSubnet1:
+    Type: String
+    Description: 'The ID of the first public subnet'
+  
+  PublicSubnet2:
+    Type: String
+    Description: 'The ID of the second public subnet'
+
+Resources:
+  ViewPostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Security group for ViewPost application'
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  ViewPostInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref ViewPostRole
+
+  ViewPostRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ViewPostAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource: '*'
+
+  LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: ConfidantLaunchTemplate
+      LaunchTemplateName: ViewPostLaunchTemplate
       LaunchTemplateData:
         InstanceType: t2.micro
         ImageId: !Sub "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2}}"
         SecurityGroupIds:
-          - !Ref ConfidantSecurityGroup
+          - !Ref ViewPostSecurityGroup
         IamInstanceProfile:
-          Name: !Ref ConfidantInstanceProfile
+          Name: !Ref ViewPostInstanceProfile
         UserData:
-          Fn::Base64: |
+          Fn::Base64: !Sub |
             #!/bin/bash
             yum update -y
             yum install -y python3-pip git python3-devel gcc python3-psutil
-            mkdir -p /opt/confidant
-            cd /opt/confidant
+            mkdir -p /opt/viewpost
+            cd /opt/viewpost
             git clone https://github.com/guirgsilva/viewpost.git .
             python3 -m venv venv
             source venv/bin/activate
             pip install -r requirements.txt
             
-            # Criar diretório de logs
-            mkdir -p /var/log/confidant
-            chown -R ec2-user:ec2-user /var/log/confidant
+            # Create log directory
+            mkdir -p /var/log/viewpost
+            chown -R ec2-user:ec2-user /var/log/viewpost
             
-            # Configurar o serviço
-            cat > /etc/systemd/system/confidant.service << 'EOF'
+            # Configure systemd service
+            cat > /etc/systemd/system/viewpost.service << 'EOF'
             [Unit]
-            Description=Confidant Web Application
+            Description=ViewPost Web Application
             After=network.target
 
             [Service]
             User=ec2-user
-            WorkingDirectory=/opt/confidant
-            Environment="PATH=/opt/confidant/venv/bin"
-            ExecStart=/opt/confidant/venv/bin/python -m flask run --host=0.0.0.0 --port=80
+            WorkingDirectory=/opt/viewpost/app
+            Environment="PATH=/opt/viewpost/venv/bin"
+            ExecStart=/opt/viewpost/venv/bin/python -m flask run --host=0.0.0.0 --port=80
             Restart=always
 
             [Install]
             WantedBy=multi-user.target
             EOF
 
-            # Habilitar e iniciar o serviço
-            systemctl enable confidant
-            systemctl start confidant
+            systemctl enable viewpost
+            systemctl start viewpost
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: ViewPostALB
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ViewPostSecurityGroup
+      Scheme: internet-facing
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ViewPostTG
+      VpcId: !Ref VPCId
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      Matcher:
+        HttpCode: 200
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MinSize: '1'
+      MaxSize: '3'
+      DesiredCapacity: '1'
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+      Tags:
+        - Key: Name
+          Value: ViewPost-Instance
+          PropagateAtLaunch: true
+
+Outputs:
+  ApplicationLoadBalancerName:
+    Description: 'Name of the Application Load Balancer'
+    Value: !Ref ApplicationLoadBalancer    # Changed from GetAtt to Ref
+    Export:
+      Name: !Sub "${AWS::StackName}-ApplicationLoadBalancerName"
+
+  AutoScalingGroupId:
+    Description: 'ID of the Auto Scaling Group'
+    Value: !Ref AutoScalingGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-AutoScalingGroupId"
+      

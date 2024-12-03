@@ -4,14 +4,13 @@ phases:
   pre_build:
     commands:
       - echo "Installing test dependencies..."
-      - pip install pytest pytest-cov
+      - pip install pytest pytest-cov flask psutil
       
   build:
     commands:
       - echo "Running tests..."
       - cd app
-      - python -m pytest
-      - cd ..
+      - python -m pytest -v
 
 artifacts:
   files:

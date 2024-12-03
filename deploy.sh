@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Function to wait for stack completion and get outputs
+# Function to wait for stack completion
 wait_for_stack() {
     local stack_name=$1
     echo "Waiting for $stack_name to complete..."
@@ -20,55 +20,57 @@ wait_for_stack() {
     done
 }
 
-# Function to get stack output
-get_stack_output() {
-    local stack_name=$1
-    local export_name=$2
-    aws cloudformation describe-stacks \
-        --stack-name $stack_name \
-        --query "Stacks[0].Outputs[?ExportName=='$export_name'].OutputValue" \
-        --output text
-}
-
 echo "Starting infrastructure deployment..."
 
-# 1. Deploy NetworkStack first
+# 1. NetworkStack
 echo "Deploying NetworkStack using network.yaml"
 aws cloudformation deploy \
     --stack-name NetworkStack \
-    --template-file network.yaml \
+    --template-file cloudformation/network.yaml \
     --capabilities CAPABILITY_NAMED_IAM
 
 wait_for_stack "NetworkStack"
 
-# Get Network Stack outputs
-echo "Getting NetworkStack outputs..."
-VPC_ID=$(get_stack_output "NetworkStack" "VPCId")
-PRIVATE_SUBNET_1=$(get_stack_output "NetworkStack" "PrivateSubnet1")
-PRIVATE_SUBNET_2=$(get_stack_output "NetworkStack" "PrivateSubnet2")
-PUBLIC_SUBNET_1=$(get_stack_output "NetworkStack" "PublicSubnet1")
-PUBLIC_SUBNET_2=$(get_stack_output "NetworkStack" "PublicSubnet2")
+# Get Network outputs
+VPC_ID=$(aws cloudformation describe-stacks \
+    --stack-name NetworkStack \
+    --query 'Stacks[0].Outputs[?OutputKey==`VPCId`].OutputValue' \
+    --output text)
 
-# Verify network parameters
-if [[ -z "$VPC_ID" || -z "$PRIVATE_SUBNET_1" || -z "$PRIVATE_SUBNET_2" ]]; then
-    echo "Error: Missing network parameters after NetworkStack deployment."
-    exit 1
-fi
+PRIVATE_SUBNET_1=$(aws cloudformation describe-stacks \
+    --stack-name NetworkStack \
+    --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet1`].OutputValue' \
+    --output text)
 
-# 2. Deploy StorageStack
+PRIVATE_SUBNET_2=$(aws cloudformation describe-stacks \
+    --stack-name NetworkStack \
+    --query 'Stacks[0].Outputs[?OutputKey==`PrivateSubnet2`].OutputValue' \
+    --output text)
+
+PUBLIC_SUBNET_1=$(aws cloudformation describe-stacks \
+    --stack-name NetworkStack \
+    --query 'Stacks[0].Outputs[?OutputKey==`PublicSubnet1`].OutputValue' \
+    --output text)
+
+PUBLIC_SUBNET_2=$(aws cloudformation describe-stacks \
+    --stack-name NetworkStack \
+    --query 'Stacks[0].Outputs[?OutputKey==`PublicSubnet2`].OutputValue' \
+    --output text)
+
+# 2. StorageStack
 echo "Deploying StorageStack using storage.yaml"
 aws cloudformation deploy \
     --stack-name StorageStack \
-    --template-file storage.yaml \
+    --template-file cloudformation/storage.yaml \
     --capabilities CAPABILITY_NAMED_IAM
 
 wait_for_stack "StorageStack"
 
-# 3. Deploy DatabaseStack
+# 3. DatabaseStack
 echo "Deploying DatabaseStack using database.yaml"
 aws cloudformation deploy \
     --stack-name DatabaseStack \
-    --template-file database.yaml \
+    --template-file cloudformation/database.yaml \
     --parameter-overrides \
         VPCId=$VPC_ID \
         PrivateSubnet1=$PRIVATE_SUBNET_1 \
@@ -77,81 +79,73 @@ aws cloudformation deploy \
 
 wait_for_stack "DatabaseStack"
 
-# Get RDS Endpoint
-RDS_ENDPOINT=$(aws cloudformation describe-stacks \
-    --stack-name DatabaseStack \
-    --query "Stacks[0].Outputs[?ExportName=='RDSInstanceEndpoint'].OutputValue" \
-    --output text)
-
-if [[ -z "$RDS_ENDPOINT" ]]; then
-    echo "Error: Missing RDS endpoint after DatabaseStack deployment."
-    exit 1
-fi
-
-# 4. Deploy ComputeStack
+# 4. ComputeStack
 echo "Deploying ComputeStack using compute.yaml"
 aws cloudformation deploy \
     --stack-name ComputeStack \
-    --template-file compute.yaml \
+    --template-file cloudformation/compute.yaml \
     --parameter-overrides \
         VPCId=$VPC_ID \
         PublicSubnet1=$PUBLIC_SUBNET_1 \
         PublicSubnet2=$PUBLIC_SUBNET_2 \
-        RDSInstanceEndpoint=$RDS_ENDPOINT \
     --capabilities CAPABILITY_NAMED_IAM
 
 wait_for_stack "ComputeStack"
 
-# Get Compute Stack outputs
+# Get Compute outputs
 LOAD_BALANCER_NAME=$(aws cloudformation describe-stacks \
     --stack-name ComputeStack \
-    --query "Stacks[0].Outputs[?ExportName=='ComputeStack-ApplicationLoadBalancerName'].OutputValue" \
-    --output text)
+    --query 'Stacks[0].Outputs[?OutputKey==`ApplicationLoadBalancerName`].OutputValue' \
+    --output text | cut -d'/' -f3)
 
-INSTANCE_ID=$(aws cloudformation describe-stack-resources \
+AUTO_SCALING_GROUP=$(aws cloudformation describe-stacks \
     --stack-name ComputeStack \
-    --query "StackResources[?ResourceType=='AWS::AutoScaling::AutoScalingGroup'].PhysicalResourceId" \
+    --query 'Stacks[0].Outputs[?OutputKey==`AutoScalingGroupId`].OutputValue' \
     --output text)
 
-if [[ -z "$LOAD_BALANCER_NAME" || -z "$INSTANCE_ID" ]]; then
-    echo "Error: Missing ComputeStack outputs."
-    exit 1
-fi
+echo "Compute outputs:"
+echo "Load Balancer Name: $LOAD_BALANCER_NAME"
+echo "Auto Scaling Group: $AUTO_SCALING_GROUP"
 
-# 5. Deploy MonitoringStack
+# 5. MonitoringStack
 echo "Deploying MonitoringStack using monitoring.yaml"
 aws cloudformation deploy \
     --stack-name MonitoringStack \
-    --template-file monitoring.yaml \
+    --template-file cloudformation/monitoring.yaml \
     --parameter-overrides \
         LoadBalancerName=$LOAD_BALANCER_NAME \
-        AutoScalingGroupName=$INSTANCE_ID \
+        AutoScalingGroupName=$AUTO_SCALING_GROUP \
     --capabilities CAPABILITY_NAMED_IAM
 
 wait_for_stack "MonitoringStack"
 
-# 6. Deploy CICDStack
+# 6. CICDStack
 echo "Deploying CICDStack using cicd.yaml"
 aws cloudformation deploy \
     --stack-name CICDStack \
-    --template-file cicd.yaml \
+    --template-file cloudformation/cicd.yaml \
     --parameter-overrides \
         GitHubOwner=guirgsilva \
-        GitHubRepo=confidant \
-        GitHubBranch=master \
-        GitHubTokenSecretId=github/token \
-        ExistingPipelineBucketName=043309321272-us-east-1-pipeline-artifacts \
+        GitHubRepo=viewpost \
+        GitHubBranch=main \
+        GitHubTokenSecretName=github/aws-token \
     --capabilities CAPABILITY_NAMED_IAM
 
 wait_for_stack "CICDStack"
 
-echo "All stacks deployed successfully!"
+echo "Infrastructure deployment completed successfully!"
 
-# Print important outputs
+# Print final deployment summary
 echo "
 Deployment Summary:
 ------------------
 VPC ID: $VPC_ID
-RDS Endpoint: $RDS_ENDPOINT
 Load Balancer Name: $LOAD_BALANCER_NAME
-"
+Auto Scaling Group: $AUTO_SCALING_GROUP
+
+Stack Status:
+------------"
+for stack in "NetworkStack" "StorageStack" "DatabaseStack" "ComputeStack" "MonitoringStack" "CICDStack"; do
+    STATUS=$(aws cloudformation describe-stacks --stack-name $stack --query "Stacks[0].StackStatus" --output text)
+    echo "$stack: $STATUS"
+done
