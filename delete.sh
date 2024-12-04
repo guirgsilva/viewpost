@@ -5,9 +5,7 @@ delete_stack() {
     local stack_name=$1
     echo "Deleting $stack_name..."
     
-    # Check if stack exists
     if aws cloudformation describe-stacks --stack-name $stack_name >/dev/null 2>&1; then
-        # Delete stack
         aws cloudformation delete-stack --stack-name $stack_name
         
         echo "Waiting for $stack_name deletion to complete..."
@@ -27,7 +25,6 @@ clean_and_delete_bucket() {
     local bucket_name=$1
     echo "Cleaning S3 bucket $bucket_name..."
     
-    # Check if bucket exists
     if aws s3api head-bucket --bucket $bucket_name 2>/dev/null; then
         # Remove all versions and delete markers
         echo "Removing all versions and delete markers..."
@@ -68,7 +65,15 @@ clean_and_delete_bucket() {
     fi
 }
 
-# Main deletion sequence
+# Function to delete DB subnet groups
+delete_db_subnet_group() {
+    local group_name=$1
+    if aws rds describe-db-subnet-groups --db-subnet-group-name $group_name >/dev/null 2>&1; then
+        echo "Deleting DB subnet group $group_name..."
+        aws rds delete-db-subnet-group --db-subnet-group-name $group_name
+    fi
+}
+
 echo "Starting infrastructure deletion..."
 
 # 1. Delete CICD Stack (dependent on other stacks)
@@ -89,6 +94,9 @@ delete_stack "StorageStack"
 
 # 6. Delete Network Stack (base infrastructure)
 delete_stack "NetworkStack"
+
+# 7. Delete DB subnet groups
+delete_db_subnet_group "databasestack-rdssubnetgroup-p6mcqjnmxpla"
 
 echo "Infrastructure deletion completed"
 
