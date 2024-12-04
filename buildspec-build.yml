@@ -1,16 +1,25 @@
-# buildspec-build.yml
 version: 0.2
 
 phases:
+  install:
+    runtime-versions:
+      python: 3.8
+  
+  pre_build:
+    commands:
+      - echo "Preparing build environment..."
+      - pip install --upgrade pip
+  
   build:
     commands:
       - echo "Starting build phase"
       - echo "Preparing application files..."
-      - mkdir -p build
+      - mkdir -p build/scripts
       - cp -r app/* build/
       - cp requirements.txt build/
       - cp appspec.yml build/
-      - cp -r scripts build/
+      - cp scripts/*.sh build/scripts/
+      - chmod +x build/scripts/*.sh
 
 artifacts:
   files:

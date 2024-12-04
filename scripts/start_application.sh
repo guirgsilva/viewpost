@@ -1,34 +1,51 @@
 #!/bin/bash
 echo "Starting application..."
-cd /opt/viewpost || { echo "Failed to change directory"; exit 1; }
+
+# Configuration
+APP_DIR="/opt/viewpost"
+LOG_DIR="/var/log/viewpost"
+PID_FILE="/var/run/viewpost.pid"
+APP_PORT=5000
+
+# Ensure we're in the right directory
+cd $APP_DIR || { echo "Failed to change to application directory"; exit 1; }
+
+# Activate virtual environment
 source venv/bin/activate || { echo "Failed to activate virtual environment"; exit 1; }
 
-# Export Flask environment variables
+# Export environment variables
 export FLASK_APP=app.py
 export FLASK_ENV=production
-export PYTHONPATH=/opt/viewpost
+export PYTHONPATH=$APP_DIR
 
-# Log the environment for debugging
+# Create log directory if it doesn't exist
+mkdir -p $LOG_DIR
+chown -R ec2-user:ec2-user $LOG_DIR
+
+# Log startup information
+echo "Starting application at $(date)"
 echo "Current directory: $(pwd)"
 echo "Python path: $PYTHONPATH"
 echo "Flask app: $FLASK_APP"
 
 # Start the application
-echo "Starting Flask application..."
-python3 -m flask run --host=0.0.0.0 --port=5000 > /var/log/viewpost/application.log 2>&1 &
+echo "Starting Flask application on port $APP_PORT..."
+python3 -m flask run --host=0.0.0.0 --port=$APP_PORT > $LOG_DIR/application.log 2>&1 &
 pid=$!
 
 # Verify process started
 if ps -p $pid > /dev/null; then
-    echo $pid > /var/run/viewpost.pid
+    echo $pid > $PID_FILE
     echo "Application started successfully with PID: $pid"
+    
     # Give Flask a moment to fully start
     sleep 5
-    # Check if process is still running
-    if ps -p $pid > /dev/null; then
-        echo "Process verified running after startup"
+    
+    # Verify process is still running and responding
+    if ps -p $pid > /dev/null && curl -s http://localhost:$APP_PORT/health > /dev/null; then
+        echo "Application verified running and responding"
     else
-        echo "Process died after startup"
+        echo "Process started but not responding properly"
         exit 1
     fi
 else

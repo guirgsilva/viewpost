@@ -5,12 +5,13 @@ phases:
     commands:
       - echo "Installing test dependencies..."
       - pip install Flask==2.0.1 psutil==5.8.0 werkzeug==2.0.1 pytest==7.0.1 pytest-cov==3.0.0
+      - mkdir -p test-reports
       
   build:
     commands:
       - echo "Running tests..."
       - export FLASK_ENV=testing
-      - cd app
+      - export PYTHONPATH=$PYTHONPATH:$(pwd)
       - python -m pytest -v --junitxml=test-reports/junit.xml
 
 reports:

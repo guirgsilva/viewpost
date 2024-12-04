@@ -1,19 +1,38 @@
 #!/bin/bash
 echo "Validating service..."
 
+# Configuration
 MAX_ATTEMPTS=30
 SLEEP_TIME=10
-ENDPOINT="http://localhost:5000/health"
+APP_PORT=5000
+ENDPOINT="http://localhost:${APP_PORT}/health"
+LOG_FILE="/var/log/viewpost/application.log"
+PID_FILE="/var/run/viewpost.pid"
 
 check_service() {
-    echo "Checking service status..."
+    echo "=== Checking Service Status ==="
+    echo "Timestamp: $(date)"
     echo "Current directory: $(pwd)"
-    echo "Python processes running:"
-    ps aux | grep python
-    echo "Network connections:"
-    netstat -tulpn | grep :5000
-    echo "Attempting to connect to endpoint: $ENDPOINT"
     
+    # Check process status
+    if [ -f $PID_FILE ]; then
+        pid=$(cat $PID_FILE)
+        echo "Process status for PID $pid:"
+        ps -f -p $pid || echo "Process not found"
+    else
+        echo "No PID file found at $PID_FILE"
+    fi
+    
+    # Check port status
+    echo "Port status:"
+    netstat -tulpn | grep :$APP_PORT || echo "No process listening on port $APP_PORT"
+    
+    # Check application logs
+    echo "Recent application logs:"
+    tail -n 10 $LOG_FILE 2>/dev/null || echo "No recent logs found"
+    
+    # Attempt health check
+    echo "Attempting health check: $ENDPOINT"
     curl -v "$ENDPOINT" 2>&1
     return $?
 }
@@ -29,23 +48,24 @@ for ((i=1; i<=$MAX_ATTEMPTS; i++)); do
         exit 0
     fi
     
-    # Show detailed diagnostics every 5 attempts
+    # On every 5th attempt, perform detailed diagnostics
     if [ $((i % 5)) -eq 0 ]; then
-        echo "=== Diagnostic Information ==="
-        echo "Application Log:"
-        tail -n 50 /var/log/viewpost/application.log
-        echo "Process Status:"
-        if [ -f /var/run/viewpost.pid ]; then
-            pid=$(cat /var/run/viewpost.pid)
-            ps -f -p $pid || echo "Process not found"
-        fi
-        echo "========================="
+        echo "=== Detailed Diagnostics ==="
+        echo "System memory status:"
+        free -m
+        echo "Disk usage:"
+        df -h
+        echo "Process list:"
+        ps aux | grep -E "python|flask"
     fi
     
     sleep $SLEEP_TIME
 done
 
 echo "Service validation failed after $MAX_ATTEMPTS attempts"
-echo "Final Application Log:"
-tail -n 100 /var/log/viewpost/application.log
+echo "=== Final Diagnostics ==="
+echo "Complete application log:"
+cat $LOG_FILE
+echo "System status:"
+top -b -n 1
 exit 1

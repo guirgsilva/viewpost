@@ -95,56 +95,17 @@ Resources:
             systemctl enable codedeploy-agent
             systemctl start codedeploy-agent
 
-            # Clean up existing files
-            rm -rf /opt/viewpost/*
-            rm -rf /opt/viewpost/.git
-            rm -rf /opt/viewpost/scripts
-            rm -f /etc/systemd/system/viewpost.service
+            # Prepare application directories
+            mkdir -p /opt/viewpost/scripts /var/log/viewpost
+            chown -R ec2-user:ec2-user /opt/viewpost /var/log/viewpost
+            chmod -R 755 /opt/viewpost /var/log/viewpost
 
-            # Set up application directory and environment
-            mkdir -p /opt/viewpost/scripts
-            chmod -R 755 /opt/viewpost
-            chown -R ec2-user:ec2-user /opt/viewpost
-
-            cd /opt/viewpost
-            git clone https://github.com/guirgsilva/viewpost.git .
-            python3 -m venv venv
-            source venv/bin/activate
-            pip install -r requirements.txt
-            
-            # Create log directory with proper permissions
-            mkdir -p /var/log/viewpost
-            chown -R ec2-user:ec2-user /var/log/viewpost
-            
-            # Configure systemd service for the application
-            cat > /etc/systemd/system/viewpost.service << 'EOF'
-            [Unit]
-            Description=ViewPost Web Application
-            After=network.target
-
-            [Service]
-            Type=simple
-            User=ec2-user
-            WorkingDirectory=/opt/viewpost
-            Environment="PATH=/opt/viewpost/venv/bin"
-            Environment="FLASK_APP=app"
-            ExecStart=/opt/viewpost/venv/bin/flask run --host=0.0.0.0 --port=80
-            Restart=always
-            RestartSec=5
-            TimeoutStartSec=0
-        
-            [Install]
-            WantedBy=multi-user.target
+            # Configure logging
+            cat > /etc/rsyslog.d/viewpost.conf << EOF
+            if $programname == 'viewpost' then /var/log/viewpost/application.log
+            & stop
             EOF
-
-            # Set appropriate permissions for service file
-            chmod 644 /etc/systemd/system/viewpost.service
-            systemctl daemon-reload
-
-            # Enable and start the application service
-            systemctl enable viewpost
-            systemctl start viewpost
-            journalctl -u viewpost -f --no-pager &
+            systemctl restart rsyslog
 
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -173,9 +134,9 @@ Resources:
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: ViewPostTG
+      Name: !Sub "${AWS::StackName}-tg-${AWS::Region}"
       VpcId: !Ref VPCId
-      Port: 80
+      Port: 5000
       Protocol: HTTP
       TargetType: instance
       HealthCheckIntervalSeconds: 30
@@ -186,6 +147,9 @@ Resources:
       UnhealthyThresholdCount: 2
       Matcher:
         HttpCode: 200
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '20'
 
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
