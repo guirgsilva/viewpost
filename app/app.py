@@ -14,19 +14,40 @@ from datetime import datetime
 import sys
 
 def setup_logging():
-    """Configure logging system with detailed format and multiple handlers"""
+    """Configure logging system with fallback for test environments"""
     log_format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    
+    # Determine log location based on environment
+    if os.getenv('FLASK_ENV') == 'testing':
+        log_file = 'test_application.log'
+    else:
+        log_dir = '/var/log/viewpost'
+        # Create log directory if it doesn't exist
+        os.makedirs(log_dir, exist_ok=True)
+        log_file = os.path.join(log_dir, 'application.log')
+
     logging.basicConfig(
         level=logging.INFO,
         format=log_format,
         handlers=[
-            logging.FileHandler('/var/log/viewpost/application.log'),
+            logging.FileHandler(log_file),
             logging.StreamHandler(sys.stdout)
         ]
     )
     return logging.getLogger(__name__)
 
-logger = setup_logging()
+# Initialize logging with error handling
+try:
+    logger = setup_logging()
+except Exception as e:
+    # Fallback to basic logging if file logging fails
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Failed to setup file logging: {str(e)}. Using console logging only.")
 
 def create_app(test_config=None):
     """
@@ -69,26 +90,10 @@ def create_app(test_config=None):
                 'message': str(e)
             }
 
-    @app.before_request
-    def before_request():
-        """Log information before each request"""
-        logger.info(f"Received request for: {request.path}")
-
-    @app.after_request
-    def after_request(response):
-        """
-        Add security and performance headers after each request
-        """
-        response.headers['Server'] = 'ViewPost Test App'
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        return response
-
     @app.route('/')
     def home():
         """
         Main route that shows instance information and request counter.
-        Useful for demonstrating load balancing.
         """
         nonlocal request_count
         request_count += 1
@@ -137,48 +142,18 @@ def create_app(test_config=None):
     def stress(seconds):
         """
         Endpoint for load testing.
-        Allows testing application behavior under stress.
         """
-        # Safety limit for stress test
         max_seconds = min(seconds, 60)
-        
         logger.info(f"Starting stress test for {max_seconds} seconds")
         start_time = time.time()
         
-        # Simulate CPU load
         while time.time() - start_time < max_seconds:
             x = 234234 * 234234
         
-        end_time = time.time()
-        duration = end_time - start_time
-        
         return jsonify({
-            'message': f'Stress test completed in {duration:.2f} seconds',
-            'requested_duration': seconds,
-            'actual_duration': duration,
+            'message': f'Stress test completed in {time.time() - start_time:.2f} seconds',
             'instance_info': get_instance_info()
         })
-
-    @app.route('/error')
-    def error():
-        """
-        Test endpoint for error monitoring.
-        Generates a test error for monitoring systems.
-        """
-        logger.error("Test error endpoint called")
-        return jsonify({
-            'error': 'Test error endpoint',
-            'timestamp': datetime.now().isoformat()
-        }), 500
-
-    # Error handlers
-    @app.errorhandler(404)
-    def not_found_error(error):
-        return jsonify({'error': 'Resource not found'}), 404
-
-    @app.errorhandler(500)
-    def internal_error(error):
-        return jsonify({'error': 'Internal server error'}), 500
 
     return app
 

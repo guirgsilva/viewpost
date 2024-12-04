@@ -9,9 +9,15 @@ phases:
   build:
     commands:
       - echo "Running tests..."
+      - export FLASK_ENV=testing
       - cd app
-      - python -m pytest -v
+      - python -m pytest -v --junitxml=test-reports/junit.xml
 
+reports:
+  junit:
+    files:
+      - test-reports/junit.xml
+    
 artifacts:
   files:
     - '**/*'
