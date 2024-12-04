@@ -1,23 +1,25 @@
 version: 0.0
 os: linux
 
-# Define file mappings with improved specificity
+# File copying instructions
 files:
   - source: /
     destination: /opt/viewpost
     overwrite: true
-    file_exists_behavior: OVERWRITE
 
-# Enhanced permissions to ensure proper access
+# Unified permissions section
 permissions:
+  # Base directory permissions
   - object: /opt/viewpost
     pattern: "**"
     owner: ec2-user
     group: ec2-user
     mode: 755
     type:
-      - file
       - directory
+      - file
+
+  # Specific script permissions
   - object: /opt/viewpost/scripts
     pattern: "*.sh"
     owner: ec2-user
@@ -25,6 +27,8 @@ permissions:
     mode: 755
     type:
       - file
+
+  # Log directory permissions
   - object: /var/log/viewpost
     pattern: "**"
     owner: ec2-user
@@ -33,28 +37,28 @@ permissions:
     type:
       - directory
 
-# Deployment lifecycle hooks with proper sequencing
+# Deployment lifecycle hooks
 hooks:
   ApplicationStop:
     - location: scripts/stop_application.sh
       timeout: 300
       runas: root
-  
+
   BeforeInstall:
     - location: scripts/before_install.sh
       timeout: 300
       runas: root
-  
+
   AfterInstall:
     - location: scripts/after_install.sh
       timeout: 300
       runas: root
-  
+
   ApplicationStart:
     - location: scripts/start_application.sh
       timeout: 300
       runas: root
-  
+
   ValidateService:
     - location: scripts/validate_service.sh
       timeout: 300
