@@ -1,25 +1,25 @@
 version: 0.2
 
 phases:
-  install:
-    runtime-versions:
-      python: 3.8
-  
-  pre_build:
-    commands:
-      - echo "Preparing build environment..."
-      - pip install --upgrade pip
-  
   build:
     commands:
       - echo "Starting build phase"
       - echo "Preparing application files..."
+      # Create clean build directory
+      - rm -rf build
       - mkdir -p build/scripts
+      # Copy files in specific order to avoid duplication
       - cp -r app/* build/
       - cp requirements.txt build/
       - cp appspec.yml build/
-      - cp scripts/*.sh build/scripts/
-      - chmod +x build/scripts/*.sh
+      # Copy scripts individually to ensure clean copy
+      - cp scripts/start_application.sh build/scripts/
+      - cp scripts/stop_application.sh build/scripts/
+      - cp scripts/before_install.sh build/scripts/
+      - cp scripts/after_install.sh build/scripts/
+      - cp scripts/validate_service.sh build/scripts/
+      # Set correct permissions
+      - chmod 755 build/scripts/*.sh
 
 artifacts:
   files:
