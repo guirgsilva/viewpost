@@ -10,22 +10,22 @@ permissions:
     mode: 755
 hooks:
   BeforeInstall:
-    - location: /opt/viewpost/scripts/before_install.sh
+    - location: scripts/before_install.sh
       timeout: 300
       runas: root
   AfterInstall:
-    - location: /opt/viewpost/scripts/after_install.sh
+    - location: scripts/after_install.sh
       timeout: 300
       runas: ec2-user
   ApplicationStart:
-    - location: /opt/viewpost/scripts/start_application.sh
+    - location: scripts/start_application.sh
       timeout: 300
       runas: ec2-user
   ValidateService:
-    - location: /opt/viewpost/scripts/validate_service.sh
+    - location: scripts/validate_service.sh
       timeout: 300
       runas: ec2-user
   ApplicationStop:
-    - location: /opt/viewpost/scripts/stop_application.sh
+    - location: scripts/stop_application.sh
       timeout: 300
       runas: root
