@@ -1,5 +1,4 @@
 #!/bin/bash
-# validate_service.sh
 echo "Validating service..."
 
 MAX_ATTEMPTS=30
@@ -7,16 +6,16 @@ SLEEP_TIME=10
 ENDPOINT="http://localhost:5000/health"
 
 check_service() {
-    local response
-    response=$(curl -s -f "$ENDPOINT")
-    local status=$?
+    echo "Checking service status..."
+    echo "Current directory: $(pwd)"
+    echo "Python processes running:"
+    ps aux | grep python
+    echo "Network connections:"
+    netstat -tulpn | grep :5000
+    echo "Attempting to connect to endpoint: $ENDPOINT"
     
-    if [ $status -ne 0 ]; then
-        echo "Service check failed. Checking logs..."
-        tail -n 20 /var/log/viewpost/application.log
-        return 1
-    fi
-    return 0
+    curl -v "$ENDPOINT" 2>&1
+    return $?
 }
 
 # Initial delay to allow application to start
@@ -30,21 +29,23 @@ for ((i=1; i<=$MAX_ATTEMPTS; i++)); do
         exit 0
     fi
     
-    # Show process status every 5 attempts
+    # Show detailed diagnostics every 5 attempts
     if [ $((i % 5)) -eq 0 ]; then
-        echo "Process status:"
+        echo "=== Diagnostic Information ==="
+        echo "Application Log:"
+        tail -n 50 /var/log/viewpost/application.log
+        echo "Process Status:"
         if [ -f /var/run/viewpost.pid ]; then
             pid=$(cat /var/run/viewpost.pid)
-            ps -p $pid || echo "Process not found"
-        else
-            echo "No PID file found"
+            ps -f -p $pid || echo "Process not found"
         fi
+        echo "========================="
     fi
     
     sleep $SLEEP_TIME
 done
 
 echo "Service validation failed after $MAX_ATTEMPTS attempts"
-echo "Last 50 lines of application log:"
-tail -n 50 /var/log/viewpost/application.log
+echo "Final Application Log:"
+tail -n 100 /var/log/viewpost/application.log
 exit 1
